@@ -1,45 +1,44 @@
-const fetch = require('node-fetch');
-const AdmZip = require('adm-zip');
-const fs = require('fs');
-const path = require('path');
-const { exec, execSync } = require('child_process');
-const os = require('os');
+import { execSync } from 'child_process';
+import fs from 'fs';
+import os from 'os';
+import path from 'path';
+import fetch from 'node-fetch';
+import AdmZip from 'adm-zip';
 
-const ZIP_URL = 'https://github.com/PrinceXtremeX/MINI-BOT/archive/refs/heads/main.zip';
 const TEMP_DIR = path.join(os.tmpdir(), 'mini-bot');
-const ZIP_PATH = path.join(TEMP_DIR, 'main.zip');
-const EXTRACTED_DIR = path.join(TEMP_DIR, 'MINI-BOT-main');
-const ENTRY_FILE = path.join(EXTRACTED_DIR, 'index.js');
+const ZIP_URL = 'https://github.com/PrinceXtremeX/MINI-BOT/archive/refs/heads/main.zip';
+const ZIP_PATH = path.join(TEMP_DIR, 'bot.zip');
 
-// Create temp folder if not exists
-if (!fs.existsSync(TEMP_DIR)) fs.mkdirSync(TEMP_DIR, { recursive: true });
-
-// Function to download ZIP
-async function downloadZip(url, dest) {
+async function downloadBot() {
   console.log('[⬇️] Downloading bot files from GitHub...');
-  const res = await fetch(url);
-
-  if (!res.ok) throw new Error(`Failed to download ZIP: ${res.status} ${res.statusText}`);
-
+  const res = await fetch(ZIP_URL);
+  if (!res.ok) throw new Error(`Failed to download ZIP: ${res.statusText}`);
   const buffer = await res.buffer();
-  fs.writeFileSync(dest, buffer);
+  fs.mkdirSync(TEMP_DIR, { recursive: true });
+  fs.writeFileSync(ZIP_PATH, buffer);
   console.log('[✅] ZIP file downloaded successfully.');
 }
 
-// Function to unzip with adm-zip
-function unzipWithAdmZip(zipPath, outputPath) {
+function extractZip() {
   console.log('[🧩] Extracting ZIP file...');
-  const zip = new AdmZip(zipPath);
-  zip.extractAllTo(outputPath, true);
+  const zip = new AdmZip(ZIP_PATH);
+  zip.extractAllTo(TEMP_DIR, true);
   console.log('[📂] Extraction completed.');
 }
 
-// Function to install dependencies
-function installDependencies(folder) {
+function installDependencies() {
+  const extractedPath = path.join(TEMP_DIR, 'MINI-BOT-main');
   console.log('[📦] Installing dependencies...');
+
+  // ✅ update npm to latest (fixes "npm:" issue)
   try {
-    // ✅ Use latest NPM to support 'npm:' package resolution
-    execSync('npx npm@latest install', { cwd: folder, stdio: 'inherit' });
+    execSync('npm install -g npm@latest', { stdio: 'inherit' });
+  } catch (err) {
+    console.error('[❌] Failed to update npm:', err.message);
+  }
+
+  try {
+    execSync('npm install', { cwd: extractedPath, stdio: 'inherit' });
     console.log('[✅] Dependencies installed.');
   } catch (err) {
     console.error('[💥] Failed to install dependencies:', err.message);
@@ -47,29 +46,23 @@ function installDependencies(folder) {
   }
 }
 
-// Function to start the bot
-function startBot(entry) {
-  if (!fs.existsSync(entry)) {
-    console.error('[❌] Bot entry file not found:', entry);
-    process.exit(1);
-  }
-
+function startBot() {
+  const extractedPath = path.join(TEMP_DIR, 'MINI-BOT-main');
   console.log('[🚀] Starting the bot...');
-  const subprocess = exec(`node ${entry}`, { cwd: path.dirname(entry) });
-
-  subprocess.stdout.on('data', (data) => process.stdout.write(data));
-  subprocess.stderr.on('data', (data) => process.stderr.write(data));
-  subprocess.on('exit', (code) => console.log(`[📦] Bot exited with code ${code}`));
+  try {
+    execSync('pm2 start index.js --name MINI-BOT', { cwd: extractedPath, stdio: 'inherit' });
+  } catch (err) {
+    console.error('[💥] Failed to start bot with PM2:', err.message);
+  }
 }
 
-// Main logic
 (async () => {
   try {
-    await downloadZip(ZIP_URL, ZIP_PATH);
-    unzipWithAdmZip(ZIP_PATH, TEMP_DIR);
-    installDependencies(EXTRACTED_DIR);
-    startBot(ENTRY_FILE);
+    await downloadBot();
+    extractZip();
+    installDependencies();
+    startBot();
   } catch (err) {
-    console.error('[💥] Error:', err.message);
+    console.error('[🔥] Fatal error:', err.message);
   }
 })();
