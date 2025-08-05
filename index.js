@@ -30,9 +30,10 @@ function installDependencies() {
   const extractedPath = path.join(TEMP_DIR, 'MINI-BOT-main');
   console.log('[📦] Installing dependencies...');
 
-  // ✅ update npm to latest (fixes "npm:" issue)
   try {
-    execSync('npm install -g npm@latest', { stdio: 'inherit' });
+    console.log('[⬆️] Updating npm to latest version...');
+    execSync('npm install -g npm@10', { stdio: 'inherit' }); // 👈 Force npm v10+
+    console.log('[✅] npm updated successfully.');
   } catch (err) {
     console.error('[❌] Failed to update npm:', err.message);
   }
