@@ -1,76 +1,75 @@
-import fs from 'fs';
-import path from 'path';
-import os from 'os';
-import { fileURLToPath } from 'url';
-import https from 'https';
-import AdmZip from 'adm-zip';
-import { exec } from 'child_process';
+const fetch = require('node-fetch');
+const AdmZip = require('adm-zip');
+const fs = require('fs');
+const path = require('path');
+const { exec, execSync } = require('child_process');
+const os = require('os');
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-
-// CONFIG
 const ZIP_URL = 'https://github.com/PrinceXtremeX/MINI-BOT/archive/refs/heads/main.zip';
-const TEMP_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'bot-'));
-const ZIP_PATH = path.join(TEMP_DIR, 'bot.zip');
-const EXTRACTED_DIR = path.join(TEMP_DIR, 'extracted');
+const TEMP_DIR = path.join(os.tmpdir(), 'mini-bot');
+const ZIP_PATH = path.join(TEMP_DIR, 'main.zip');
+const EXTRACTED_DIR = path.join(TEMP_DIR, 'MINI-BOT-main');
+const ENTRY_FILE = path.join(EXTRACTED_DIR, 'index.js');
 
-// Step 1: Download ZIP
-console.log('[⬇️] Downloading bot files from GitHub...');
-const downloadZip = () =>
-  new Promise((resolve, reject) => {
-    const file = fs.createWriteStream(ZIP_PATH);
-    https.get(ZIP_URL, (response) => {
-      if (response.statusCode !== 200) {
-        return reject(new Error('Failed to download ZIP: ' + response.statusCode));
-      }
-      response.pipe(file);
-      file.on('finish', () => file.close(resolve));
-    }).on('error', reject);
-  });
+// Create temp folder if not exists
+if (!fs.existsSync(TEMP_DIR)) fs.mkdirSync(TEMP_DIR, { recursive: true });
 
-// Step 2: Extract ZIP
-const extractZip = () => {
+// Function to download ZIP
+async function downloadZip(url, dest) {
+  console.log('[⬇️] Downloading bot files from GitHub...');
+  const res = await fetch(url);
+
+  if (!res.ok) throw new Error(`Failed to download ZIP: ${res.status} ${res.statusText}`);
+
+  const buffer = await res.buffer();
+  fs.writeFileSync(dest, buffer);
+  console.log('[✅] ZIP file downloaded successfully.');
+}
+
+// Function to unzip with adm-zip
+function unzipWithAdmZip(zipPath, outputPath) {
   console.log('[🧩] Extracting ZIP file...');
-  const zip = new AdmZip(ZIP_PATH);
-  zip.extractAllTo(EXTRACTED_DIR, true);
+  const zip = new AdmZip(zipPath);
+  zip.extractAllTo(outputPath, true);
   console.log('[📂] Extraction completed.');
-};
+}
 
-// Step 3: Install Dependencies
-const installDependencies = (dir) =>
-  new Promise((resolve, reject) => {
-    console.log('[📦] Installing dependencies...');
-    exec('npm install', { cwd: dir }, (err, stdout, stderr) => {
-      if (err) {
-        console.error('[❌] npm install failed:\n' + stderr);
-        return reject(err);
-      }
-      console.log(stdout);
-      resolve();
-    });
-  });
+// Function to install dependencies
+function installDependencies(folder) {
+  console.log('[📦] Installing dependencies...');
+  try {
+    // ✅ Use latest NPM to support 'npm:' package resolution
+    execSync('npx npm@latest install', { cwd: folder, stdio: 'inherit' });
+    console.log('[✅] Dependencies installed.');
+  } catch (err) {
+    console.error('[💥] Failed to install dependencies:', err.message);
+    process.exit(1);
+  }
+}
 
-// Step 4: Start Bot
-const startBot = (dir) => {
+// Function to start the bot
+function startBot(entry) {
+  if (!fs.existsSync(entry)) {
+    console.error('[❌] Bot entry file not found:', entry);
+    process.exit(1);
+  }
+
   console.log('[🚀] Starting the bot...');
-  const child = exec('node index.js', { cwd: dir });
+  const subprocess = exec(`node ${entry}`, { cwd: path.dirname(entry) });
 
-  child.stdout.on('data', (data) => process.stdout.write(data));
-  child.stderr.on('data', (data) => process.stderr.write(data));
-};
+  subprocess.stdout.on('data', (data) => process.stdout.write(data));
+  subprocess.stderr.on('data', (data) => process.stderr.write(data));
+  subprocess.on('exit', (code) => console.log(`[📦] Bot exited with code ${code}`));
+}
 
+// Main logic
 (async () => {
   try {
-    await downloadZip();
-    console.log('[✅] ZIP file downloaded successfully.');
-    extractZip();
-
-    // Get the real path inside the extracted folder
-    const folders = fs.readdirSync(EXTRACTED_DIR);
-    const botFolder = path.join(EXTRACTED_DIR, folders.find(f => f.startsWith('MINI-BOT')));
-    await installDependencies(botFolder);
-    startBot(botFolder);
-  } catch (error) {
-    console.error('[❌] Error:', error);
+    await downloadZip(ZIP_URL, ZIP_PATH);
+    unzipWithAdmZip(ZIP_PATH, TEMP_DIR);
+    installDependencies(EXTRACTED_DIR);
+    startBot(ENTRY_FILE);
+  } catch (err) {
+    console.error('[💥] Error:', err.message);
   }
 })();
